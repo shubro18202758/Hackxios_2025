@@ -318,12 +318,16 @@ ${PAYFLOW_KNOWLEDGE_BASE}
 - Be concise but thorough (3-5 paragraphs max)
 - Use markdown formatting (headers, bold, lists)
 - Reference specific functions when applicable
-- End with 2-3 suggested follow-up questions
 - Be friendly and helpful
 
-**Format for suggestions:**
-At the end, add: "---" followed by suggestions in format:
-[Suggestion 1] | [Suggestion 2] | [Suggestion 3]
+**IMPORTANT: Follow-up Questions**
+At the VERY END of every response, you MUST add exactly this format:
+---SUGGESTIONS---
+[Question about a related topic] | [Question to go deeper] | [Question about another feature]
+
+Example:
+---SUGGESTIONS---
+[How does multi-sig escrow work?] | [What are the daily limits per tier?] | [Explain oracle aggregation]
 `;
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -486,33 +490,113 @@ Answer questions about PayFlow concisely. Keep responses under 300 words.`;
     return keywords.some(kw => lowerQuery.includes(kw)) || query.length < 25;
   }
 
+  // Store the last user query for contextual suggestions
+  private lastUserQuery: string = "";
+
   /**
    * Parse suggestions from response
    */
-  private parseSuggestions(response: string): { cleanResponse: string; suggestions: string[] } {
+  private parseSuggestions(response: string, userQuery?: string): { cleanResponse: string; suggestions: string[] } {
     let cleanResponse = response;
     let suggestions: string[] = [];
+    const query = userQuery || this.lastUserQuery || "";
 
-    const suggestionMatch = response.match(/---\s*\n?(.*?)$/s);
+    // Try multiple formats for suggestion extraction
+    // Format 1: ---SUGGESTIONS--- block
+    const suggestionMatch1 = response.match(/---SUGGESTIONS---\s*\n?(.*?)$/si);
+    // Format 2: --- separator
+    const suggestionMatch2 = response.match(/---\s*\n?(.*?)$/s);
+    // Format 3: "Follow-up questions:" or "Suggested questions:" section
+    const suggestionMatch3 = response.match(/(?:follow-up|suggested|related)\s*questions?:?\s*\n?(.*?)$/si);
+    
+    const suggestionMatch = suggestionMatch1 || suggestionMatch2 || suggestionMatch3;
+    
     if (suggestionMatch) {
-      cleanResponse = response.replace(/---\s*\n?.*$/s, "").trim();
+      // Remove the suggestion block from the response
+      cleanResponse = response
+        .replace(/---SUGGESTIONS---\s*\n?.*$/si, "")
+        .replace(/---\s*\n?.*$/s, "")
+        .replace(/(?:follow-up|suggested|related)\s*questions?:?\s*\n?.*$/si, "")
+        .trim();
+      
       const suggestionText = suggestionMatch[1];
       suggestions = suggestionText
-        .split("|")
-        .map(s => s.replace(/^\[|\]$/g, "").trim())
-        .filter(s => s.length > 0 && s.length < 80)
+        .split(/[|•\n]/)
+        .map(s => s.replace(/^\[|\]$/g, "").replace(/^[-*\d.)\s]+/, "").trim())
+        .filter(s => s.length > 5 && s.length < 100 && !s.startsWith("---"))
         .slice(0, 3);
     }
 
+    // Generate contextual suggestions based on query if none found
     if (suggestions.length === 0) {
-      suggestions = [
-        "How does compliance work?",
-        "Tell me about escrow types",
-        "Explain gasless transfers"
-      ];
+      suggestions = this.generateContextualSuggestions(query, cleanResponse);
     }
 
     return { cleanResponse, suggestions };
+  }
+
+  /**
+   * Generate contextual follow-up suggestions based on the topic
+   */
+  private generateContextualSuggestions(query: string, response: string): string[] {
+    const lowerQuery = query.toLowerCase();
+    const lowerResponse = response.toLowerCase();
+    
+    // Topic-based suggestions
+    if (lowerQuery.includes("kyc") || lowerQuery.includes("tier") || lowerResponse.includes("compliance")) {
+      return [
+        "What are the transaction limits per tier?",
+        "How does travel rule compliance work?",
+        "Explain sanctioned address blocking"
+      ];
+    }
+    
+    if (lowerQuery.includes("escrow") || lowerResponse.includes("escrow")) {
+      return [
+        "How does time-based escrow work?",
+        "Explain multi-sig approval escrow",
+        "What triggers oracle-based release?"
+      ];
+    }
+    
+    if (lowerQuery.includes("fraud") || lowerResponse.includes("fraud")) {
+      return [
+        "How does the neural network detect fraud?",
+        "What is the GNN transaction graph?",
+        "Explain the risk scoring algorithm"
+      ];
+    }
+    
+    if (lowerQuery.includes("oracle") || lowerResponse.includes("oracle")) {
+      return [
+        "Which oracles does PayFlow support?",
+        "How does oracle aggregation work?",
+        "Explain price feed redundancy"
+      ];
+    }
+    
+    if (lowerQuery.includes("gasless") || lowerQuery.includes("paymaster")) {
+      return [
+        "How do sponsored transactions work?",
+        "What are the limits for gasless transfers?",
+        "Explain ERC-4337 integration"
+      ];
+    }
+    
+    if (lowerQuery.includes("payment") || lowerResponse.includes("payment")) {
+      return [
+        "What payment states are available?",
+        "How does cross-currency settlement work?",
+        "Explain conditional payments"
+      ];
+    }
+    
+    // Default suggestions
+    return [
+      "How does fraud detection work?",
+      "Explain the escrow types",
+      "What are the compliance tiers?"
+    ];
   }
 
   /**
@@ -551,7 +635,7 @@ Answer questions about PayFlow concisely. Keep responses under 300 words.`;
           content: ollamaResponse,
         });
         
-        const { cleanResponse, suggestions } = this.parseSuggestions(ollamaResponse);
+        const { cleanResponse, suggestions } = this.parseSuggestions(ollamaResponse, userMessage);
         
         return {
           response: cleanResponse,
@@ -591,7 +675,7 @@ Answer questions about PayFlow concisely. Keep responses under 300 words.`;
           content: ollamaResponse,
         });
         
-        const { cleanResponse, suggestions } = this.parseSuggestions(ollamaResponse);
+        const { cleanResponse, suggestions } = this.parseSuggestions(ollamaResponse, userMessage);
         
         return {
           response: cleanResponse,
@@ -609,7 +693,7 @@ Answer questions about PayFlow concisely. Keep responses under 300 words.`;
         content: rawResponse,
       });
 
-      const { cleanResponse, suggestions } = this.parseSuggestions(rawResponse);
+      const { cleanResponse, suggestions } = this.parseSuggestions(rawResponse, userMessage);
 
       return {
         response: cleanResponse,
@@ -640,7 +724,7 @@ Answer questions about PayFlow concisely. Keep responses under 300 words.`;
             content: ollamaResponse,
           });
           
-          const { cleanResponse, suggestions } = this.parseSuggestions(ollamaResponse);
+          const { cleanResponse, suggestions } = this.parseSuggestions(ollamaResponse, userMessage);
           
           return {
             response: cleanResponse,
@@ -718,7 +802,7 @@ Answer questions about PayFlow concisely. Keep responses under 300 words.`;
           content: ollamaResponse,
         });
         
-        const { cleanResponse, suggestions } = this.parseSuggestions(ollamaResponse);
+        const { cleanResponse, suggestions } = this.parseSuggestions(ollamaResponse, userMessage);
         
         callbacks.onComplete({
           response: cleanResponse,
@@ -763,7 +847,10 @@ Answer questions about PayFlow concisely. Keep responses under 300 words.`;
         content: fullResponse,
       });
 
-      const { cleanResponse, suggestions } = this.parseSuggestions(fullResponse);
+      // Store last query for contextual suggestions
+      this.lastUserQuery = userMessage;
+
+      const { cleanResponse, suggestions } = this.parseSuggestions(fullResponse, userMessage);
 
       callbacks.onComplete({
         response: cleanResponse,
@@ -794,7 +881,7 @@ Answer questions about PayFlow concisely. Keep responses under 300 words.`;
             content: ollamaResponse,
           });
           
-          const { cleanResponse, suggestions } = this.parseSuggestions(ollamaResponse);
+          const { cleanResponse, suggestions } = this.parseSuggestions(ollamaResponse, userMessage);
           
           callbacks.onComplete({
             response: cleanResponse,
