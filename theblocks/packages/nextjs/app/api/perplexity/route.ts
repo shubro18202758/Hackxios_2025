@@ -15,7 +15,12 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Invalid JSON in request body" }, { status: 400 });
     }
     
-    const apiKey = "process.env.PERPLEXITY_API_KEY";
+    const apiKey = process.env.PERPLEXITY_API_KEY;
+    
+    if (!apiKey) {
+      console.error("PERPLEXITY_API_KEY not configured");
+      return NextResponse.json({ error: "API key not configured" }, { status: 500 });
+    }
 
     const response = await fetch("https://api.perplexity.ai/chat/completions", {
       method: "POST",
